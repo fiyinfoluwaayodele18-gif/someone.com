@@ -286,6 +286,35 @@ test('chat streams progressively, persists history and feeds the model the chara
   }
 });
 
+/**
+ * Real model calls take seconds, not microseconds. The stream must survive that
+ * wait: an abort tied to the request body ending used to kill every real reply.
+ */
+test('a slow model reply still streams instead of being aborted', async () => {
+  const stub = createStubAi();
+  const ai = {
+    ...stub,
+    async *streamChat(opts) {
+      stub.calls.push({ kind: 'streamChat', opts });
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      yield 'Slow but ';
+      yield 'still here.';
+    },
+  };
+  const ctx = await boot({ ai });
+  try {
+    const { call } = await readyCompanion(ctx);
+    const res = await call('POST', '/api/chat', { text: 'you still there?' });
+    assert.equal(res.status, 200, res.text);
+    assert.match(res.text, /Slow but /);
+    assert.match(res.text, /still here\./);
+    assert.match(res.text, /"type":"done"/);
+    assert.doesNotMatch(res.text, /"type":"error"/);
+  } finally {
+    await ctx.close();
+  }
+});
+
 test('automatic memory is extracted, editable and deletable by the user', async () => {
   const ctx = await boot();
   try {
