@@ -175,6 +175,33 @@ export function createGemini(cfg) {
     return { text, sources };
   }
 
+  /** Verbatim transcription of a voice note (inline audio). */
+  async function transcribe({ audio, mimeType, signal }) {
+    const res = await request(
+      cfg.chatModel,
+      'generateContent',
+      {
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              { text: 'Transcribe this voice note verbatim. Return only the spoken words, no commentary.' },
+              { inlineData: { mimeType: mimeType || 'audio/webm', data: audio.toString('base64') } },
+            ],
+          },
+        ],
+        generationConfig: { temperature: 0, maxOutputTokens: 400 },
+      },
+      { signal },
+    );
+    const json = await res.json();
+    const text = (json?.candidates?.[0]?.content?.parts || [])
+      .map((p) => (typeof p.text === 'string' ? p.text : ''))
+      .join('')
+      .trim();
+    return { text };
+  }
+
   /** Gemini TTS returns raw PCM; we wrap it in a WAV container for playback. */
   async function speak({ text, voice, signal }) {
     const res = await request(
@@ -207,6 +234,7 @@ export function createGemini(cfg) {
     generateJSON,
     groundedSearch,
     speak,
+    transcribe,
   };
 }
 
