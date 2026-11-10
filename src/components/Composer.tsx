@@ -8,11 +8,20 @@ interface ComposerProps {
   busy: boolean;
   disabled?: boolean;
   placeholder?: string;
+  /** Text handed back after a failed send, so nothing the user typed is lost. */
+  restore?: { text: string; token: number } | null;
 }
 
 const MAX_MS = 120_000;
 
-export default function Composer({ onSend, onVoice, busy, disabled, placeholder }: ComposerProps) {
+export default function Composer({
+  onSend,
+  onVoice,
+  busy,
+  disabled,
+  placeholder,
+  restore,
+}: ComposerProps) {
   const [value, setValue] = useState('');
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
@@ -36,6 +45,19 @@ export default function Composer({ onSend, onVoice, busy, disabled, placeholder 
   useEffect(() => {
     autosize();
   }, [value]);
+
+  /* a failed send hands the text back instead of swallowing it */
+  useEffect(() => {
+    if (!restore?.text) return;
+    setValue(restore.text);
+    requestAnimationFrame(() => {
+      autosize();
+      areaRef.current?.focus();
+      const end = restore.text.length;
+      areaRef.current?.setSelectionRange(end, end);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restore?.token]);
 
   useEffect(
     () => () => {
