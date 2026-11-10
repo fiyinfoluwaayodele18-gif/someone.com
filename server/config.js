@@ -15,6 +15,18 @@ export function loadConfig(env = process.env) {
     audioDir: path.join(dataDir, 'audio'),
     sessionTtlMs: 1000 * 60 * 60 * 24 * 30,
     secureCookies: env.NODE_ENV === 'production' || bool(env.SOMEONE_SECURE_COOKIES),
+    store: {
+      // Optional durable backend. Without it the app still runs, but data lives
+      // only in the container and is lost on redeploy.
+      remote:
+        env.SUPABASE_URL && (env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY)
+          ? {
+              url: env.SUPABASE_URL,
+              key: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY,
+              table: env.SOMEONE_STATE_TABLE || 'someone_state',
+            }
+          : null,
+    },
     ai: {
       apiKey: env.GEMINI_API_KEY || '',
       baseUrl: env.GEMINI_API_URL || 'https://generativelanguage.googleapis.com',

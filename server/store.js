@@ -33,10 +33,13 @@ function ensureCollection(data, name) {
  * The interface is deliberately repository-shaped so a managed database
  * (Firestore/Postgres) can be dropped in behind the same calls.
  */
-export function createStore({ file = null } = {}) {
+export function createStore({ file = null, remote = null } = {}) {
   let data = emptyData();
   let timer = null;
   let closed = false;
+  let remoteTimer = null;
+  let remoteQueued = false;
+  let saving = false;
 
   if (file) {
     fs.mkdirSync(path.dirname(file), { recursive: true });
@@ -66,7 +69,9 @@ export function createStore({ file = null } = {}) {
   }
 
   function persist() {
-    if (!file || closed) return;
+    if (closed) return;
+    scheduleRemote();
+    if (!file) return;
     if (timer) return;
     timer = setTimeout(() => {
       timer = null;
@@ -85,6 +90,40 @@ export function createStore({ file = null } = {}) {
       timer = null;
     }
     writeNow();
+    scheduleRemote();
+  }
+
+  /* ---- remote (durable) mirror -------------------------------------- */
+
+  function snapshot() {
+    return JSON.parse(JSON.stringify(data));
+  }
+
+  function scheduleRemote() {
+    if (!remote || closed) return;
+    remoteQueued = true;
+    if (remoteTimer) return;
+    remoteTimer = setTimeout(() => {
+      remoteTimer = null;
+      void pushRemote();
+    }, 50);
+    if (typeof remoteTimer.unref === 'function') remoteTimer.unref();
+  }
+
+  async function pushRemote() {
+    if (!remote || closed || saving) return;
+    if (!remoteQueued) return;
+    remoteQueued = false;
+    saving = true;
+    try {
+      await remote.save(snapshot());
+    } catch (err) {
+      // Keep the data queued so the next write retries instead of losing it.
+      remoteQueued = true;
+      console.error('[store] remote save failed:', err.message);
+    } finally {
+      saving = false;
+    }
   }
 
   const api = {
@@ -129,6 +168,40 @@ export function createStore({ file = null } = {}) {
     },
     persist,
     flush,
+    /**
+     * Hydrate from the remote backend before the server starts serving.
+     * Remote wins when it already holds data; otherwise the local document is
+     * pushed up so an existing deployment is never silently discarded.
+     */
+    async ready() {
+      if (!remote) return api;
+      try {
+        const doc = await remote.load();
+        if (doc && typeof doc === 'object' && Object.keys(doc).length > 0) {
+          data = { ...emptyData(), ...doc };
+          for (const name of COLLECTIONS) ensureCollection(data, name);
+          writeNow();
+        } else {
+          await remote.save(snapshot());
+        }
+      } catch (err) {
+        console.error('[store] remote load failed, continuing on local data:', err.message);
+      }
+      return api;
+    },
+    /** Waits for any queued remote write (used on shutdown). */
+    async drain() {
+      if (remoteTimer) {
+        clearTimeout(remoteTimer);
+        remoteTimer = null;
+      }
+      if (!remote || closed) return;
+      remoteQueued = true;
+      await pushRemote();
+    },
+    get remote() {
+      return Boolean(remote);
+    },
     close() {
       flush();
       closed = true;
