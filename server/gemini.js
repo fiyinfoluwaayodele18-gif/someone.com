@@ -17,6 +17,18 @@ export class AiError extends Error {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Gemini 3 answers arrive as several parts, some of which are internal
+ * "thought" parts. Only the answer text may reach the user — leaking a thought
+ * part showed up live as a companion message reading "Drafting options:".
+ */
+function answerText(parts) {
+  return (parts || [])
+    .filter((part) => part && part.thought !== true && typeof part.text === 'string')
+    .map((part) => part.text)
+    .join('');
+}
+
+/**
  * Server-side Gemini client. The API key never leaves the server: the browser
  * only ever talks to our own /api routes.
  */
@@ -152,7 +164,8 @@ export function createGemini(cfg) {
           blocked = candidate.finishReason;
         }
         for (const part of candidate?.content?.parts || []) {
-          if (typeof part.text === 'string' && part.text) yield part.text;
+          const piece = answerText([part]);
+          if (piece) yield piece;
         }
       }
     }
@@ -180,10 +193,7 @@ export function createGemini(cfg) {
     const res = await request(chatModel(), 'generateContent', body, { signal });
     const json = await res.json();
     const candidate = json?.candidates?.[0];
-    const text = (candidate?.content?.parts || [])
-      .map((p) => (typeof p.text === 'string' ? p.text : ''))
-      .join('')
-      .trim();
+    const text = answerText(candidate?.content?.parts).trim();
     return { text, raw: json, finishReason: candidate?.finishReason || null };
   }
 
@@ -236,10 +246,7 @@ export function createGemini(cfg) {
       { signal },
     );
     const json = await res.json();
-    const text = (json?.candidates?.[0]?.content?.parts || [])
-      .map((p) => (typeof p.text === 'string' ? p.text : ''))
-      .join('')
-      .trim();
+    const text = answerText(json?.candidates?.[0]?.content?.parts).trim();
     return { text };
   }
 
