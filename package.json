@@ -1,25 +1,30 @@
 {
-  "name": "someone.com",
+  "name": "someone",
+  "private": true,
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "SOMEONE — a personal AI companion. Everyone deserves someone.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "dev:server": "node --watch server/index.js",
+    "build": "vite build",
+    "start": "node server/index.js",
+    "test": "node --test tests/",
+    "typecheck": "tsc --noEmit"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/fiyinfoluwaayodele18-gif/someone.com.git"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "commonjs",
-  "bugs": {
-    "url": "https://github.com/fiyinfoluwaayodele18-gif/someone.com/issues"
-  },
-  "homepage": "https://github.com/fiyinfoluwaayodele18-gif/someone.com#readme",
   "dependencies": {
-    "better-sqlite3": "^11.10.0",
-    "express": "^4.22.3"
+    "express": "^4.21.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
   }
 }
