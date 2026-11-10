@@ -24,6 +24,10 @@ export function loadConfig(env = process.env) {
               url: env.SUPABASE_URL,
               key: env.SUPABASE_SERVICE_ROLE_KEY || env.SUPABASE_ANON_KEY,
               table: env.SOMEONE_STATE_TABLE || 'someone_state',
+              // The anon key is a client key, so the table stays locked behind RLS.
+              // This shared secret is what actually authorises this server: the
+              // database policy checks the header, and it exists only here.
+              secret: env.SOMEONE_STATE_SECRET || '',
             }
           : null,
     },

@@ -19,6 +19,9 @@ export function createSupabaseRemote(remote) {
     apikey: remote.key,
     authorization: `Bearer ${remote.key}`,
     'content-type': 'application/json',
+    // Row level security on the state table only lets a request through when it
+    // carries this secret, so the public anon key alone can read nothing.
+    ...(remote.secret ? { 'x-someone-state': remote.secret } : {}),
   };
 
   return {
