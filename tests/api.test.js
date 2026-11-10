@@ -485,3 +485,46 @@ test('conversations and companion survive a store reload', async () => {
     await ctx.close();
   }
 });
+
+test('durable store recovers from the remote backend and survives an outage', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'someone-remote-'));
+  let saved = null;
+  const remote = {
+    async load() {
+      return saved;
+    },
+    async save(doc) {
+      saved = doc;
+    },
+  };
+
+  const first = createStore({ file: path.join(dir, 'a.json'), remote });
+  await first.ready();
+  first.insert('users', { id: 'u1', email: 'durable@example.com' });
+  first.insert('companions', { id: 'u1', name: 'Nova' });
+  await first.drain();
+  assert.ok(saved && saved.users.u1, 'writes are pushed to the remote backend');
+
+  // A brand new container starts with an empty disk: it must recover remotely.
+  const second = createStore({ file: path.join(dir, 'b.json'), remote });
+  await second.ready();
+  assert.equal(second.get('users', 'u1').email, 'durable@example.com');
+  assert.equal(second.get('companions', 'u1').name, 'Nova');
+
+  // An unreachable backend must never break local reads or writes.
+  const broken = createStore({
+    file: path.join(dir, 'c.json'),
+    remote: {
+      async load() {
+        throw new Error('offline');
+      },
+      async save() {
+        throw new Error('offline');
+      },
+    },
+  });
+  await broken.ready();
+  broken.insert('users', { id: 'u2', email: 'local@example.com' });
+  await broken.drain();
+  assert.equal(broken.get('users', 'u2').email, 'local@example.com');
+});

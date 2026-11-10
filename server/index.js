@@ -2,8 +2,15 @@ import { config } from './config.js';
 import { createApp } from './app.js';
 import { createGemini } from './gemini.js';
 import { createStore } from './store.js';
+import { createSupabaseRemote } from './remote.js';
 
-const store = createStore({ file: config.storeFile });
+const store = createStore({
+  file: config.storeFile,
+  remote: createSupabaseRemote(config.store?.remote),
+});
+// Recover durable state before accepting traffic, so a fresh container serves
+// the same accounts, companions and memories as the previous one.
+await store.ready();
 const ai = createGemini(config.ai);
 const app = createApp({ config, store, ai });
 
@@ -25,10 +32,15 @@ if (config.proactive.enabled) {
 function shutdown(signal) {
   console.log(`[someone] ${signal} received, shutting down`);
   if (proactiveTimer) clearInterval(proactiveTimer);
-  server.close(() => {
-    store.close();
-    process.exit(0);
-  });
+  const finish = () => {
+    Promise.resolve(typeof store.drain === 'function' ? store.drain() : null)
+      .catch(() => {})
+      .finally(() => {
+        store.close();
+        process.exit(0);
+      });
+  };
+  server.close(finish);
   setTimeout(() => process.exit(0), 5000).unref();
 }
 
