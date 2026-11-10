@@ -148,6 +148,7 @@ async function boot({ ai = createStubAi() } = {}) {
     client,
     close: async () => {
       await new Promise((resolve) => server.close(resolve));
+      if (typeof store.flush === 'function') await store.flush();
       fs.rmSync(dir, { recursive: true, force: true });
     },
   };
@@ -400,7 +401,7 @@ test('live trends state honestly when search is unavailable', async () => {
     assert.equal(trends.status, 200);
     assert.equal(trends.json.available, false);
     assert.equal(trends.json.items.length, 0);
-    assert.match(trends.json.message, /confirm|make something up/i);
+    assert.match(trends.json.message, /pretend|couldn't reach|make something up/i);
   } finally {
     await ctx.close();
   }

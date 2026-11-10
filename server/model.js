@@ -98,6 +98,7 @@ export const DEFAULT_PROFILE = {
   communicationStyle: '',
   companionship: 'friendship',
   aboutYou: '',
+  completedAt: null,
   onboardingComplete: false,
   skipped: [],
   updatedAt: 0,
@@ -152,6 +153,8 @@ export function sanitizeProfile(patch = {}, current = DEFAULT_PROFILE) {
       if (typeof key === 'string') skipped.add(key.slice(0, 40));
     }
   }
+  // Onboarding completion is a timestamp the routes set; keep it across edits.
+  if (Number.isFinite(patch.completedAt)) next.completedAt = patch.completedAt;
   next.skipped = [...skipped];
   next.updatedAt = Date.now();
   return next;
