@@ -32,7 +32,8 @@ export function loadConfig(env = process.env) {
       baseUrl: env.GEMINI_API_URL || 'https://generativelanguage.googleapis.com',
       chatModel: env.GEMINI_MODEL || 'gemini-3.8-flash',
       // Older model names are retired for new keys; fall through in order.
-      fallbackModels: (env.GEMINI_FALLBACK_MODELS || 'gemini-flash-latest,gemini-2.5-flash')
+      // (gemini-2.5-flash now 404s: "no longer available to new users".)
+      fallbackModels: (env.GEMINI_FALLBACK_MODELS || 'gemini-flash-latest,gemini-3.7-flash,gemini-3.6-flash')
         .split(',')
         .map((m) => m.trim())
         .filter(Boolean),

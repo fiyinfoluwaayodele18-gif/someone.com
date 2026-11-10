@@ -23,11 +23,25 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createGemini(cfg) {
   const configured = Boolean(cfg.apiKey) && cfg.enabled !== false;
 
-  // Model names get retired. Try the configured model, then any fallbacks, and
-  // remember whichever name the service actually accepts.
+  // Model names get retired and models get overloaded. Walk the chain in order,
+  // remember which names are currently unusable, and always prefer the best one.
   const chatChain = [...new Set([cfg.chatModel, ...(cfg.fallbackModels || [])].filter(Boolean))];
-  let activeModel = null;
-  const chatModel = () => activeModel || cfg.chatModel;
+  const RETIRED_MS = 10 * 60 * 1000;
+  const BUSY_MS = 60 * 1000;
+  const skipUntil = new Map();
+
+  function chatModel() {
+    const now = Date.now();
+    const usable = chatChain.find((m) => (skipUntil.get(m) || 0) <= now);
+    if (usable) return usable;
+    // Everything is cooling down: start from the top rather than staying stuck.
+    skipUntil.clear();
+    return chatChain[0];
+  }
+
+  function skip(model, ms) {
+    if (chatChain.includes(model)) skipUntil.set(model, Date.now() + ms);
+  }
 
   function endpoint(model, action) {
     const base = String(cfg.baseUrl || '').replace(/\/+$/, '');
@@ -58,23 +72,28 @@ export function createGemini(cfg) {
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
       const idx = chatChain.indexOf(model);
-      if (res.status === 404 && idx >= 0 && chatChain[idx + 1]) {
-        const next = chatChain[idx + 1];
-        console.warn(`[gemini] model "${model}" is unavailable, retrying with "${next}"`);
-        activeModel = next;
-        return request(next, action, body, { signal, attempt });
-      }
+      const next = idx >= 0 ? chatChain[idx + 1] : undefined;
       const retryable = res.status === 429 || res.status === 503;
+      if (res.status === 404) {
+        // Retired for this key: stop retrying it for a while, but never cache it
+        // as "the" model — a bad fallback must not poison later requests.
+        skip(model, RETIRED_MS);
+        if (next) {
+          console.warn(`[gemini] model "${model}" is unavailable, retrying with "${next}"`);
+          return request(next, action, body, { signal, attempt });
+        }
+      }
       if (retryable && attempt === 0) {
         await sleep(600);
         return request(model, action, body, { signal, attempt: attempt + 1 });
       }
-      // Still overloaded after a retry: another model in the chain may have capacity.
-      if (retryable && idx >= 0 && chatChain[idx + 1]) {
-        const next = chatChain[idx + 1];
-        console.warn(`[gemini] model "${model}" is busy, retrying with "${next}"`);
-        activeModel = next;
-        return request(next, action, body, { signal });
+      // Still overloaded after a retry: another model may have capacity.
+      if (retryable) {
+        skip(model, BUSY_MS);
+        if (next) {
+          console.warn(`[gemini] model "${model}" is busy, retrying with "${next}"`);
+          return request(next, action, body, { signal });
+        }
       }
       if (res.status === 429) {
         throw new AiError('ai_rate_limited', 'The companion is a little busy right now. Try again in a moment.', 429);
