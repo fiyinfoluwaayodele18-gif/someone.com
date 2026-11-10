@@ -3,7 +3,8 @@ FROM node:26-alpine AS build
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
-COPY . .
+COPY index.html vite.config.ts tsconfig.json ./
+COPY src ./src
 RUN npm run build
 
 # ---- runtime stage: Express API + static client ----
