@@ -1,7 +1,6 @@
 import {
   buildSystemInstruction,
   characterPrompt,
-  composeCharacter,
   introPrompt,
   lifeEventPrompt,
   localCharacterSheet,
@@ -506,6 +505,5 @@ export function createServices({ store, ai }) {
     updateSettings,
     parseTrending,
     localGists: LOCAL_GISTS,
-    composeCharacter,
   };
 }
