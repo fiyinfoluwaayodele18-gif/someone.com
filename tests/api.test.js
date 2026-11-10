@@ -106,7 +106,8 @@ async function boot({ ai = createStubAi() } = {}) {
   const store = createStore({ file: config.storeFile });
   const app = createApp({ config, store, ai });
   const server = http.createServer(app);
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  // Same bind address as production (server/index.js); the harness connects over loopback.
+  await new Promise((resolve) => server.listen(0, '0.0.0.0', resolve));
   const { port } = server.address();
   const base = `http://127.0.0.1:${port}`;
 
