@@ -437,7 +437,7 @@ export default function Chat({
   const showEmpty = !loading && !loadError && messages.length === 0 && !streamText;
 
   return (
-    <div className="shell">
+    <div className="shell shell--app">
       <div className="chat">
         <header className="chat__head">
           <div className="avatar avatar--sm">{initials(companion.name)}</div>
