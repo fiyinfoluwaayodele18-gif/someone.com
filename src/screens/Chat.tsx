@@ -338,13 +338,13 @@ export default function Chat({
           },
           onError: (err) => {
             settled = true;
-            setError(err.message);
             setStreamText('');
             if (acknowledged) {
-              setMessages((prev) =>
-                prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
-              );
+              /* the message is stored; only the reply failed — never call that "not sent" */
+              setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false } : m)));
+              setError(`${err.message} Your message is saved — you don't need to retype it.`);
             } else {
+              setError(err.message);
               /* never reached the server — give the words back rather than swallow them */
               setMessages((prev) => prev.filter((m) => m.id !== tempId));
               setRestore({ text, token: Date.now() });
@@ -355,9 +355,8 @@ export default function Chat({
     } finally {
       if (!settled) {
         if (acknowledged) {
-          setMessages((prev) =>
-            prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
-          );
+          setMessages((prev) => prev.map((m) => (m.id === tempId ? { ...m, pending: false } : m)));
+          setError('The reply didn’t come through, but your message is saved — you don’t need to retype it.');
         } else {
           setMessages((prev) => prev.filter((m) => m.id !== tempId));
           setRestore({ text, token: Date.now() });
