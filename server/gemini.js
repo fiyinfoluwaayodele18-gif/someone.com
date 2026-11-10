@@ -69,6 +69,13 @@ export function createGemini(cfg) {
         await sleep(600);
         return request(model, action, body, { signal, attempt: attempt + 1 });
       }
+      // Still overloaded after a retry: another model in the chain may have capacity.
+      if (retryable && idx >= 0 && chatChain[idx + 1]) {
+        const next = chatChain[idx + 1];
+        console.warn(`[gemini] model "${model}" is busy, retrying with "${next}"`);
+        activeModel = next;
+        return request(next, action, body, { signal });
+      }
       if (res.status === 429) {
         throw new AiError('ai_rate_limited', 'The companion is a little busy right now. Try again in a moment.', 429);
       }

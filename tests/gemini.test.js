@@ -3,6 +3,14 @@ import assert from 'node:assert/strict';
 
 import { createGemini } from '../server/gemini.js';
 
+function stubFetch(handler) {
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = handler;
+  return () => {
+    globalThis.fetch = realFetch;
+  };
+}
+
 /**
  * The Gemini API retires model names for new keys (we hit this live: 404
  * "no longer available to new users"). The client must move to a supported
@@ -10,8 +18,7 @@ import { createGemini } from '../server/gemini.js';
  */
 test('a retired model name falls through to a supported one', async () => {
   const urls = [];
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
+  const restore = stubFetch(async (url) => {
     urls.push(String(url));
     if (String(url).includes('gemini-retired')) {
       return new Response(
@@ -23,7 +30,7 @@ test('a retired model name falls through to a supported one', async () => {
       JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hey, good to see you' }] } }] }),
       { status: 200, headers: { 'content-type': 'application/json' } },
     );
-  };
+  });
 
   try {
     const ai = createGemini({
@@ -42,6 +49,39 @@ test('a retired model name falls through to a supported one', async () => {
     );
     assert.equal(ai.model, 'gemini-3.8-flash', 'remembers the working model');
   } finally {
-    globalThis.fetch = realFetch;
+    restore();
+  }
+});
+
+test('an overloaded model falls through to a model with capacity', async () => {
+  const urls = [];
+  const restore = stubFetch(async (url) => {
+    urls.push(String(url));
+    if (String(url).includes('gemini-busy')) {
+      return new Response(
+        JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'This model is currently experiencing high demand.' } }),
+        { status: 503, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: 'still here, sorry — busy week' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  });
+
+  try {
+    const ai = createGemini({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.test',
+      chatModel: 'gemini-busy',
+      fallbackModels: ['gemini-3.8-flash'],
+      enabled: true,
+    });
+
+    const { text } = await ai.generateContent({ prompt: 'hi' });
+    assert.equal(text, 'still here, sorry — busy week');
+    assert.equal(ai.model, 'gemini-3.8-flash', 'moved to the model that answered');
+  } finally {
+    restore();
   }
 });
