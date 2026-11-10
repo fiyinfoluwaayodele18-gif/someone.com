@@ -95,7 +95,9 @@ export function registerChatRoutes(app, { services, ai }) {
     send({ type: 'start', userMessage });
 
     const controller = new AbortController();
-    req.on('close', () => {
+    // Abort only when the client actually goes away. Listening on the request
+    // fires as soon as the body ends, which killed every real model call.
+    res.on('close', () => {
       if (!res.writableEnded) controller.abort();
     });
 
