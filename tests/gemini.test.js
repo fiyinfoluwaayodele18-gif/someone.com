@@ -53,6 +53,81 @@ test('a retired model name falls through to a supported one', async () => {
   }
 });
 
+/**
+ * Gemini 3 returns internal "thought" parts next to the answer. We saw this
+ * live: the companion's messages were stored as "Drafting options:" and
+ * "currently pretending to read the last" — reasoning text shown to the user.
+ * Only answer parts may reach a conversation.
+ */
+test('internal thought parts never become the reply', async () => {
+  const sse = [
+    { candidates: [{ content: { parts: [{ text: 'Drafting options:', thought: true }] } }] },
+    { candidates: [{ content: { parts: [{ text: 'ok so my little brother ' }] } }] },
+    { candidates: [{ content: { parts: [{ text: 'stole my snacks again 😂' }] } }] },
+  ]
+    .map((payload) => `data: ${JSON.stringify(payload)}\n\n`)
+    .join('');
+
+  const restore = stubFetch(
+    async () =>
+      new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } }),
+  );
+
+  try {
+    const ai = createGemini({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.test',
+      chatModel: 'gemini-3.8-flash',
+      enabled: true,
+    });
+
+    let streamed = '';
+    for await (const delta of ai.streamChat({
+      systemInstruction: 'be a friend',
+      messages: [{ role: 'user', text: 'what happened?' }],
+    })) {
+      streamed += delta;
+    }
+    assert.equal(streamed, 'ok so my little brother stole my snacks again 😂');
+    assert.ok(!streamed.includes('Drafting options'), 'thought text was dropped');
+  } finally {
+    restore();
+  }
+});
+
+test('thought parts are dropped from non-streamed replies too', async () => {
+  const restore = stubFetch(async () =>
+    new Response(
+      JSON.stringify({
+        candidates: [
+          {
+            content: {
+              parts: [
+                { text: 'Drafting options:', thought: true },
+                { text: 'hey, good to see you' },
+              ],
+            },
+          },
+        ],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    ),
+  );
+
+  try {
+    const ai = createGemini({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.test',
+      chatModel: 'gemini-3.8-flash',
+      enabled: true,
+    });
+    const { text } = await ai.generateContent({ prompt: 'hi' });
+    assert.equal(text, 'hey, good to see you');
+  } finally {
+    restore();
+  }
+});
+
 test('an overloaded model falls through to a model with capacity', async () => {
   const urls = [];
   const restore = stubFetch(async (url) => {

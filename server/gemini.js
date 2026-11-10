@@ -124,7 +124,7 @@ export function createGemini(cfg) {
   }
 
   /** Streams plain text deltas from the chat model. */
-  async function* streamChat({ systemInstruction, messages, temperature = 1.0, maxOutputTokens = 700, signal }) {
+  async function* streamChat({ systemInstruction, messages, temperature = 1.0, maxOutputTokens = 1200, signal }) {
     const res = await request(
       chatModel(),
       'streamGenerateContent?alt=sse',
