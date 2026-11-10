@@ -149,7 +149,9 @@ export function createGemini(cfg) {
   }
 
   async function generateJSON(options) {
-    const { text } = await generateContent(options);
+    // Callers pass `schema`; the REST API calls it responseSchema.
+    const { schema, ...rest } = options;
+    const { text } = await generateContent({ ...rest, responseSchema: schema || rest.responseSchema });
     return { value: parseJson(text), text };
   }
 

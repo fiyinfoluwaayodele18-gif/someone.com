@@ -36,16 +36,37 @@ export function registerChatRoutes(app, { services, ai }) {
   router.post('/chat', async (req, res) => {
     if (!req.user) return res.status(401).json({ error: { code: 'unauthorized', message: 'Please sign in.' } });
     const userId = req.user.id;
-    const text = cleanText(req.body?.text, 2000);
-    if (!text) {
-      return res.status(400).json({ error: { code: 'empty_message', message: 'Type something first.' } });
+    const voiceMessageId = cleanText(req.body?.voiceMessageId, 60);
+    let text = cleanText(req.body?.text, 2000);
+    let userMessage = null;
+
+    if (voiceMessageId) {
+      // A recorded voice note is answered in place instead of duplicating the turn.
+      const existing = services.store.get('messages', voiceMessageId);
+      if (!existing || existing.userId !== userId || existing.role !== 'user') {
+        return res.status(404).json({ error: { code: 'not_found', message: 'That voice note no longer exists.' } });
+      }
+      if (!existing.meta?.transcript) {
+        return res.status(409).json({
+          error: {
+            code: 'no_transcript',
+            message: "I couldn't make out that voice note, so I can't answer it yet. Try typing it instead?",
+          },
+        });
+      }
+      text = existing.text;
+      userMessage = existing;
+    } else {
+      if (!text) {
+        return res.status(400).json({ error: { code: 'empty_message', message: 'Type something first.' } });
+      }
+      userMessage = services.addMessage(userId, { role: 'user', text });
     }
+
     const companion = services.companionFor(userId);
     if (!companion) {
       return res.status(409).json({ error: { code: 'no_companion', message: 'Create your companion first.' } });
     }
-
-    const userMessage = services.addMessage(userId, { role: 'user', text });
 
     if (!ai.configured) {
       return res.status(503).json({
@@ -57,7 +78,6 @@ export function registerChatRoutes(app, { services, ai }) {
         userMessage,
       });
     }
-
     const { system } = services.buildChatPrompt(userId);
     const history = services.historyForModel(userId);
 
