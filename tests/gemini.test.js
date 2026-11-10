@@ -128,6 +128,78 @@ test('thought parts are dropped from non-streamed replies too', async () => {
   }
 });
 
+/**
+ * Thought text cannot be filtered reliably (a live reply leaked an unflagged
+ * reasoning tail), so the chat call must ask for the smallest thinking budget —
+ * and still answer if a model rejects that field.
+ */
+test('chat asks for a minimal thinking budget and survives its rejection', async () => {
+  const bodies = [];
+  const restore = stubFetch(async (url, init) => {
+    bodies.push(JSON.parse(init.body));
+    if (bodies.length === 1) {
+      return new Response(
+        JSON.stringify({ error: { code: 400, message: 'Unknown name "thinkingConfig": Cannot find field.' } }),
+        { status: 400, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    const sse = `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hi, I missed you' }] } }] })}\n\n`;
+    return new Response(sse, { status: 200, headers: { 'content-type': 'text/event-stream' } });
+  });
+
+  try {
+    const ai = createGemini({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.test',
+      chatModel: 'gemini-3.8-flash',
+      enabled: true,
+    });
+
+    let streamed = '';
+    for await (const delta of ai.streamChat({
+      systemInstruction: 'be a friend',
+      messages: [{ role: 'user', text: 'hi' }],
+    })) {
+      streamed += delta;
+    }
+
+    assert.equal(streamed, 'hi, I missed you', 'the reply survives a rejected optimisation');
+    assert.deepEqual(
+      bodies[0].generationConfig.thinkingConfig,
+      { thinkingLevel: 'low' },
+      'Gemini 3 gets the smallest thinking level',
+    );
+    assert.equal(bodies.length, 2, 'retried once without the rejected field');
+    assert.ok(!('thinkingConfig' in bodies[1].generationConfig), 'the retry drops thinkingConfig');
+  } finally {
+    restore();
+  }
+});
+
+test('older models get a zero thinking budget', async () => {
+  const bodies = [];
+  const restore = stubFetch(async (url, init) => {
+    bodies.push(JSON.parse(init.body));
+    return new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hey' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  });
+
+  try {
+    const ai = createGemini({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.test',
+      chatModel: 'gemini-2.5-flash',
+      enabled: true,
+    });
+    await ai.generateContent({ prompt: 'hi' });
+    assert.deepEqual(bodies[0].generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  } finally {
+    restore();
+  }
+});
+
 test('an overloaded model falls through to a model with capacity', async () => {
   const urls = [];
   const restore = stubFetch(async (url) => {
