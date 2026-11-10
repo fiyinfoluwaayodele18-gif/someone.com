@@ -17,6 +17,17 @@ export class AiError extends Error {
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * A companion reply must be the answer, not the model's private reasoning.
+ * Gemini 3.x takes a thinking level, 2.5 takes a token budget. Filtering
+ * thought parts alone is not enough: a live reply still leaked a reasoning
+ * tail ("...:** * *Idea") because continuation parts are not always flagged.
+ * Asking for the smallest possible thinking budget stops that text existing.
+ */
+function thinkingConfigFor(model) {
+  return /^gemini-3/.test(String(model)) ? { thinkingLevel: 'low' } : { thinkingBudget: 0 };
+}
+
+/**
  * Gemini 3 answers arrive as several parts, some of which are internal
  * "thought" parts. Only the answer text may reach the user — leaking a thought
  * part showed up live as a companion message reading "Drafting options:".
@@ -83,6 +94,10 @@ export function createGemini(cfg) {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
+      if (res.status === 400 && /thinking/i.test(detail)) {
+        // Model rejects the thinking configuration: send() retries without it.
+        throw new AiError('ai_thinking_unsupported', 'This model does not accept a thinking configuration.', 400);
+      }
       const idx = chatChain.indexOf(model);
       const next = idx >= 0 ? chatChain[idx + 1] : undefined;
       const retryable = res.status === 429 || res.status === 503;
@@ -116,6 +131,24 @@ export function createGemini(cfg) {
     return res;
   }
 
+  /**
+   * Sends a request with the smallest thinking budget the model allows, and
+   * retries once without the field if the model rejects it. A rejected
+   * optimisation must never cost the user their reply.
+   */
+  async function send(model, action, body, opts = {}) {
+    const withThinking = {
+      ...body,
+      generationConfig: { ...body.generationConfig, thinkingConfig: thinkingConfigFor(model) },
+    };
+    try {
+      return await request(model, action, withThinking, opts);
+    } catch (err) {
+      if (err?.code !== 'ai_thinking_unsupported') throw err;
+      return request(model, action, body, opts);
+    }
+  }
+
   function toContents(messages) {
     return messages.map((m) => ({
       role: m.role === 'assistant' ? 'model' : 'user',
@@ -125,7 +158,7 @@ export function createGemini(cfg) {
 
   /** Streams plain text deltas from the chat model. */
   async function* streamChat({ systemInstruction, messages, temperature = 1.0, maxOutputTokens = 1200, signal }) {
-    const res = await request(
+    const res = await send(
       chatModel(),
       'streamGenerateContent?alt=sse',
       {
@@ -190,7 +223,7 @@ export function createGemini(cfg) {
     }
     if (tools) body.tools = tools;
 
-    const res = await request(chatModel(), 'generateContent', body, { signal });
+    const res = await send(chatModel(), 'generateContent', body, { signal });
     const json = await res.json();
     const candidate = json?.candidates?.[0];
     const text = answerText(candidate?.content?.parts).trim();
