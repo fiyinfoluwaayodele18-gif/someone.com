@@ -30,7 +30,12 @@ export function loadConfig(env = process.env) {
     ai: {
       apiKey: env.GEMINI_API_KEY || '',
       baseUrl: env.GEMINI_API_URL || 'https://generativelanguage.googleapis.com',
-      chatModel: env.GEMINI_MODEL || 'gemini-2.5-flash',
+      chatModel: env.GEMINI_MODEL || 'gemini-3.8-flash',
+      // Older model names are retired for new keys; fall through in order.
+      fallbackModels: (env.GEMINI_FALLBACK_MODELS || 'gemini-flash-latest,gemini-2.5-flash')
+        .split(',')
+        .map((m) => m.trim())
+        .filter(Boolean),
       ttsModel: env.GEMINI_TTS_MODEL || 'gemini-2.5-flash-preview-tts',
       ttsVoice: env.GEMINI_TTS_VOICE || 'Leda',
       enabled: Boolean(env.GEMINI_API_KEY) && !bool(env.SOMEONE_DISABLE_AI),

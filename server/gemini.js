@@ -23,6 +23,12 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 export function createGemini(cfg) {
   const configured = Boolean(cfg.apiKey) && cfg.enabled !== false;
 
+  // Model names get retired. Try the configured model, then any fallbacks, and
+  // remember whichever name the service actually accepts.
+  const chatChain = [...new Set([cfg.chatModel, ...(cfg.fallbackModels || [])].filter(Boolean))];
+  let activeModel = null;
+  const chatModel = () => activeModel || cfg.chatModel;
+
   function endpoint(model, action) {
     const base = String(cfg.baseUrl || '').replace(/\/+$/, '');
     return `${base}/v1beta/models/${model}:${action}`;
@@ -51,6 +57,13 @@ export function createGemini(cfg) {
 
     if (!res.ok) {
       const detail = await res.text().catch(() => '');
+      const idx = chatChain.indexOf(model);
+      if (res.status === 404 && idx >= 0 && chatChain[idx + 1]) {
+        const next = chatChain[idx + 1];
+        console.warn(`[gemini] model "${model}" is unavailable, retrying with "${next}"`);
+        activeModel = next;
+        return request(next, action, body, { signal, attempt });
+      }
       const retryable = res.status === 429 || res.status === 503;
       if (retryable && attempt === 0) {
         await sleep(600);
@@ -75,7 +88,7 @@ export function createGemini(cfg) {
   /** Streams plain text deltas from the chat model. */
   async function* streamChat({ systemInstruction, messages, temperature = 1.0, maxOutputTokens = 700, signal }) {
     const res = await request(
-      cfg.chatModel,
+      chatModel(),
       'streamGenerateContent?alt=sse',
       {
         systemInstruction: { parts: [{ text: systemInstruction }] },
@@ -138,7 +151,7 @@ export function createGemini(cfg) {
     }
     if (tools) body.tools = tools;
 
-    const res = await request(cfg.chatModel, 'generateContent', body, { signal });
+    const res = await request(chatModel(), 'generateContent', body, { signal });
     const json = await res.json();
     const candidate = json?.candidates?.[0];
     const text = (candidate?.content?.parts || [])
@@ -180,7 +193,7 @@ export function createGemini(cfg) {
   /** Verbatim transcription of a voice note (inline audio). */
   async function transcribe({ audio, mimeType, signal }) {
     const res = await request(
-      cfg.chatModel,
+      chatModel(),
       'generateContent',
       {
         contents: [
@@ -228,7 +241,9 @@ export function createGemini(cfg) {
 
   return {
     configured,
-    model: cfg.chatModel,
+    get model() {
+      return chatModel();
+    },
     ttsModel: cfg.ttsModel,
     ttsConfigured: configured,
     streamChat,

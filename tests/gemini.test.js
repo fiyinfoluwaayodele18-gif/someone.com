@@ -1,0 +1,47 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { createGemini } from '../server/gemini.js';
+
+/**
+ * The Gemini API retires model names for new keys (we hit this live: 404
+ * "no longer available to new users"). The client must move to a supported
+ * model instead of failing every conversation.
+ */
+test('a retired model name falls through to a supported one', async () => {
+  const urls = [];
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    urls.push(String(url));
+    if (String(url).includes('gemini-retired')) {
+      return new Response(
+        JSON.stringify({ error: { code: 404, status: 'NOT_FOUND', message: 'no longer available to new users' } }),
+        { status: 404, headers: { 'content-type': 'application/json' } },
+      );
+    }
+    return new Response(
+      JSON.stringify({ candidates: [{ content: { parts: [{ text: 'hey, good to see you' }] } }] }),
+      { status: 200, headers: { 'content-type': 'application/json' } },
+    );
+  };
+
+  try {
+    const ai = createGemini({
+      apiKey: 'test-key',
+      baseUrl: 'https://example.test',
+      chatModel: 'gemini-retired',
+      fallbackModels: ['gemini-3.8-flash'],
+      enabled: true,
+    });
+
+    const { text } = await ai.generateContent({ prompt: 'hi' });
+    assert.equal(text, 'hey, good to see you');
+    assert.ok(
+      urls.some((u) => u.includes('gemini-3.8-flash')),
+      'retried with the fallback model',
+    );
+    assert.equal(ai.model, 'gemini-3.8-flash', 'remembers the working model');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
