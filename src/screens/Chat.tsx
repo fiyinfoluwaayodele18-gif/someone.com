@@ -289,6 +289,9 @@ export default function Chat({
     setAtBottom(el.scrollHeight - el.scrollTop - el.clientHeight < 90);
   };
 
+  /* text handed back to the composer when a send never reached the server */
+  const [restore, setRestore] = useState<{ text: string; token: number } | null>(null);
+
   /* send text */
   const send = async (raw: string) => {
     const text = raw.trim();
@@ -312,12 +315,14 @@ export default function Chat({
 
     let acc = '';
     let settled = false;
+    let acknowledged = false;
     try {
       await streamChat(
         { text },
         {
           onStart: ({ userMessage }) => {
             if (!userMessage) return;
+            acknowledged = true;
             seqRef.current = Math.max(seqRef.current, userMessage.seq);
             setMessages((prev) => prev.map((m) => (m.id === tempId ? userMessage : m)));
           },
@@ -335,17 +340,28 @@ export default function Chat({
             settled = true;
             setError(err.message);
             setStreamText('');
-            setMessages((prev) =>
-              prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
-            );
+            if (acknowledged) {
+              setMessages((prev) =>
+                prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
+              );
+            } else {
+              /* never reached the server — give the words back rather than swallow them */
+              setMessages((prev) => prev.filter((m) => m.id !== tempId));
+              setRestore({ text, token: Date.now() });
+            }
           },
         },
       );
     } finally {
       if (!settled) {
-        setMessages((prev) =>
-          prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
-        );
+        if (acknowledged) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === tempId ? { ...m, pending: false, failed: true } : m)),
+          );
+        } else {
+          setMessages((prev) => prev.filter((m) => m.id !== tempId));
+          setRestore({ text, token: Date.now() });
+        }
         setStreamText('');
       }
       sendingRef.current = false;
@@ -606,6 +622,7 @@ export default function Chat({
           onSend={send}
           onVoice={sendVoice}
           busy={sending}
+          restore={restore}
           placeholder={`Message ${companion.name}…`}
         />
       </div>
